@@ -1,0 +1,16 @@
+diff --git a/MDPBench/dataset/end2end_dataset.py b/MDPBench/dataset/end2end_dataset.py
+index a01b683..a8df215 100644
+--- a/MDPBench/dataset/end2end_dataset.py
++++ b/MDPBench/dataset/end2end_dataset.py
+@@ -36,7 +36,10 @@ class End2EndDataset():
+             for gt_sample in gt_samples:
+                 select_flag = True
+                 for k, v in filtered_types.items():
+-                    if gt_sample["page_info"]["page_attribute"][k] != v:
++                    attr = gt_sample["page_info"]["page_attribute"][k]
++                    # accept a list (any-of) as well as the original single value
++                    mismatch = (attr not in v) if isinstance(v, list) else (attr != v)
++                    if mismatch:
+                         select_flag = False
+                 if select_flag:
+                     filtered_gt_samples.append(gt_sample)

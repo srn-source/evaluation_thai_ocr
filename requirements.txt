@@ -1,0 +1,9 @@
+# Inference environment (Python 3.10-3.12, CUDA GPU)
+vllm>=0.30.0
+datasets
+pillow
+tqdm
+# chandra-ocr-2 only:
+# chandra-ocr
+# dots.mocr only:
+# PyMuPDF

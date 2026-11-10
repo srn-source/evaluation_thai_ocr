@@ -1,0 +1,44 @@
+diff --git a/eval_scripts/TEDS_metric.py b/eval_scripts/TEDS_metric.py
+index c3a0179..eccc317 100644
+--- a/eval_scripts/TEDS_metric.py
++++ b/eval_scripts/TEDS_metric.py
+@@ -252,7 +252,7 @@ def convert_str_to_dict(predict_str: str):
+             if isinstance(data, dict):
+                 success = True
+             
+-        except (ValueError, SyntaxError):
++        except Exception:  # ValueError/SyntaxError/TypeError (unhashable key) / MemoryError+RecursionError on ~100KB looping outputs
+             pass
+ 
+     # try parsing with regex
+@@ -318,7 +318,7 @@ def convert_str_to_multi_dict(predict_str: str):
+         data = ast.literal_eval(content)
+         if isinstance(data, dict):
+             success = True
+-    except (ValueError, SyntaxError, TypeError):
++    except Exception:  # incl. MemoryError ('Parser stack overflowed') on huge looping outputs
+         pass
+ 
+     if not success:
+@@ -351,7 +351,7 @@ def generate_combinations(input_dict):
+                 kie_answer = ast.literal_eval(kie_answer)
+                 if not isinstance(kie_answer, dict):
+                     kie_answer = ast.literal_eval(kie_answer)
+-            except (ValueError, SyntaxError):
++            except Exception:
+                 print(f"Unable to parse 'answers' field: {kie_answer}")
+                 return {}
+         
+diff --git a/eval_scripts/eval.py b/eval_scripts/eval.py
+index 114bf91..bb4bd6b 100644
+--- a/eval_scripts/eval.py
++++ b/eval_scripts/eval.py
+@@ -11,6 +11,8 @@ from TEDS_metric import TEDS, convert_markdown_table_to_html, convert_str_to_dic
+ from page_ocr_metric import cal_per_metrics
+ from spotting_metric import extract_bounding_boxes_robust, spotting_evaluation
+ 
++import nltk
++nltk.download('wordnet')
+ 
+ def is_nan_value(value):
+     if value is None:

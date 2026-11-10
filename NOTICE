@@ -1,0 +1,12 @@
+Thai OCR evaluation
+Copyright 2026 Typhoon Team, SCB 10X Co., Ltd.
+
+This project adapts code from:
+- Infinity-Parser2 (infly): the doc2json -> Markdown conversion in ocr_eval/models.py
+  (extract_json_content, truncate_last_incomplete_element, convert_json_to_markdown).
+- OvisOCR2 (ATH-MaaS) model card: the prompt and _clean_truncated_repeats in ocr_eval/models.py.
+- olmOCR (allenai, Apache-2.0): page rendering is imported from the olmocr package at run time.
+- dots.mocr (rednote-hilab) and chandra-ocr (datalab-to): imported at run time, not copied.
+
+The files in patches/ are changes to MDPBench (MultimodalOCR), ThaiOCRBench and OmniDocBench, and are
+distributed under those projects' licenses.

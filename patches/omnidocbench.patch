@@ -1,0 +1,56 @@
+diff --git a/src/core/preprocess/text_postprocess.py b/src/core/preprocess/text_postprocess.py
+index bb6c315..83ccf97 100644
+--- a/src/core/preprocess/text_postprocess.py
++++ b/src/core/preprocess/text_postprocess.py
+@@ -351,9 +351,17 @@ def _latex_to_text_with_timeout(latex, timeout=None):
+             _log_latex_timeout_input('failed_no_timeout', latex, timeout=None, error=str(exc))
+             return None
+ 
+-    result_queue = multiprocessing.Queue()
++    # latex_to_text runs inside the page-matching ThreadPoolExecutor. The default
++    # "fork" start method forks a multi-threaded process, which can deadlock on a
++    # lock held by another thread (observed: all matcher threads stuck in futex_wait
++    # with no child alive). A non-fork start method avoids that entirely.
++    # ("forkserver" was tried first: its single shared server pipe raced under 12 matcher
++    #  threads -> "Broken pipe"/"unexpected EOF" worker errors. "spawn" gives each call an
++    #  isolated interpreter; slower per call but correct and thread-safe.)
++    _mp = multiprocessing.get_context("spawn")
++    result_queue = _mp.Queue()
+     result_queue.cancel_join_thread()
+-    process = multiprocessing.Process(target=_latex_to_text_worker, args=(latex, result_queue))
++    process = _mp.Process(target=_latex_to_text_worker, args=(latex, result_queue))
+     process.daemon = True
+     try:
+         process.start()
+diff --git a/src/dataset/end2end_dataset.py b/src/dataset/end2end_dataset.py
+index 633a28a..bf9061d 100644
+--- a/src/dataset/end2end_dataset.py
++++ b/src/dataset/end2end_dataset.py
+@@ -1288,19 +1288,15 @@ class End2EndDataset():
+         if not has_splittable_formula:
+             return []
+ 
++        # Iterative equivalent of the original recursive backtracking (same candidates,
++        # same order). The recursion depth equalled len(option_sets) = number of predicted
++        # formulas on the page, which overflowed Python's recursion limit on pages where a
++        # model emits ~1000 formula fragments (repetition loops). total_candidates is
++        # already capped at max_candidates above, so the product stays small.
++        import itertools
+         candidates = []
+-
+-        def backtrack(option_idx, current_items):
+-            if option_idx >= len(option_sets):
+-                candidates.append([dict(item) for item in current_items])
+-                return
+-
+-            for option in option_sets[option_idx]:
+-                current_items.extend(option)
+-                backtrack(option_idx + 1, current_items)
+-                del current_items[-len(option):]
+-
+-        backtrack(0, [])
++        for combo in itertools.product(*option_sets):
++            candidates.append([dict(item) for option in combo for item in option])
+         return candidates
+ 
+     def _build_display_formula_hungarian_candidate(self, prepared, img_name):
