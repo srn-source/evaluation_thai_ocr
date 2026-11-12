@@ -20,6 +20,7 @@ python run_all_benchmarks.py --ckpt typhoon-ai/typhoon-ocr2-2b
 | OvisOCR2 | `ovisocr2` | [ATH-MaaS/OvisOCR2](https://huggingface.co/ATH-MaaS/OvisOCR2) | prompt and post-processing from its model card |
 | OpenThai2.0-OCR-Markdown | `openthai2.0-ocr-markdown` | [iapp/OpenThai2.0-OCR-Markdown](https://huggingface.co/iapp/OpenThai2.0-OCR-Markdown) | Nemotron 3.5 Parse fine-tune, run as its card says (NVIDIA's `DocumentParser`, single pass; postprocessing imported from the model repo); needs vLLM 0.33 or newer; no ThaiOCRBench (no free-form questions) |
 | Nemotron 3.5 Parse | `nemotron-3.5-parse` | [nvidia/Nemotron-3.5-Parse](https://huggingface.co/nvidia/Nemotron-3.5-Parse) | the base model of OpenThai2.0-OCR-Markdown; same recipe (the two repos differ only in their weights) |
+| DeepSeek-OCR-2 | `deepseek-ocr-2` | [deepseek-ai/DeepSeek-OCR-2](https://huggingface.co/deepseek-ai/DeepSeek-OCR-2) | prompt, decoding (with its no-repeat n-gram logits processor) and post-processing from its official OmniDocBench script |
 
 Everything that defines how a model is run is in [ocr_eval/models.py](ocr_eval/models.py). All benchmarks use the same entry, so a model gets the same prompt, image size and decoding on every benchmark. To evaluate your own fine-tune, pick the recipe with `--model` and the weights with `--ckpt`.
 
@@ -35,7 +36,7 @@ Everything that defines how a model is run is in [ocr_eval/models.py](ocr_eval/m
 
 ## Results
 
-These are the numbers on the [Typhoon OCR V2 model card](https://huggingface.co/typhoon-ai/typhoon-ocr2-2b#results), produced with this code. Typhoon OCR V2 and Infinity-Parser2-Flash were run with vLLM 0.27.1 in eager mode. Typhoon OCR 1.5's MDPBench scores were measured with vLLM 0.33.0; with vLLM 0.27.1 in its default mode it scored 62.8 (64.3 on Thai pages). OpenThai2.0-OCR-Markdown was run with vLLM 0.33.0; it writes formulas as Unicode text instead of LaTeX, so the formula metrics count them as wrong.
+These are the numbers on the [Typhoon OCR V2 model card](https://huggingface.co/typhoon-ai/typhoon-ocr2-2b#results), produced with this code. Typhoon OCR V2 and Infinity-Parser2-Flash were run with vLLM 0.27.1 in eager mode. Typhoon OCR 1.5's MDPBench scores were measured with vLLM 0.33.0; with vLLM 0.27.1 in its default mode it scored 62.8 (64.3 on Thai pages). OpenThai2.0-OCR-Markdown was run with vLLM 0.33.0; it writes formulas as Unicode text instead of LaTeX, so the formula metrics count them as wrong. DeepSeek-OCR-2 was run with vLLM 0.33.0 (V1 model runner, for its no-repeat n-gram logits processor); on photographed pages it often repeats itself until the token limit.
 
 | Model | MDPBench ↑ | MDPBench TH ↑ | olmOCR-bench ↑ | ThaiOCRBench ↑ | SEA-DocBench NED ↓ | OmniDocBench v1.6 ↑ |
 |---|---:|---:|---:|---:|---:|---:|
@@ -45,6 +46,7 @@ These are the numbers on the [Typhoon OCR V2 model card](https://huggingface.co/
 | OvisOCR2 | 47.7 | 14.7 | 72.3 | 10.2 | 0.3843 | 96.34 |
 | Infinity-Parser2-Flash | 68.3 | 61.3 | 84.4 | 35.0 | 0.1266 | 91.03 |
 | OpenThai2.0-OCR-Markdown | 67.8 | 68.3 | 51.2 | n/a | 0.4227 | 61.57 |
+| DeepSeek-OCR-2 | 48.9 | 40.7 | 78.2 | 10.1 | 0.1356 | 90.05 |
 | Typhoon OCR 1.5 | 66.0 | 68.9 | 62.0 | 40.5 | 0.1726 | 70.97 |
 | Typhoon OCR V2 0.8B | 77.4 | 77.2 | 81.7 | 36.4 | 0.1081 | 89.37 |
 | Typhoon OCR V2 2B | 79.8 | 81.3 | 84.7 | 59.9 | 0.1153 | 90.97 |

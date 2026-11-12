@@ -16,6 +16,7 @@ PaddleOCR-VL-1.6        paddleocr-vl-1.6         official 2-stage pipeline in a 
 OvisOCR2                ovisocr2                 Markdown prompt from its model card
 OpenThai2.0-OCR-Markdown openthai2.0-ocr-markdown Nemotron 3.5 Parse fine-tune; vLLM >= 0.33; Parse's own postprocessing
 Nemotron 3.5 Parse      nemotron-3.5-parse       the base model of OpenThai2.0; same recipe
+DeepSeek-OCR-2          deepseek-ocr-2           grounding Markdown prompt, n-gram repeat blocker, official eval post-processing
 """
 import importlib.util
 import json
@@ -382,6 +383,38 @@ def nemotron_parse_postprocess(raw: str) -> str:
 
 
 # --------------------------------------------------------------------------------------------------------
+# DeepSeek-OCR-2 (deepseek-ai/DeepSeek-OCR-2, arXiv:2601.20552), as in the official OmniDocBench script
+# DeepSeek-OCR2-vllm/run_dpsk_ocr2_eval_batch.py + config.py (github.com/deepseek-ai/DeepSeek-OCR-2):
+#   prompt      "<image>\n<|grounding|>Convert the document to markdown." as a plain prompt (no chat template)
+#   preprocess  none here: vLLM's native processor does the official tiling (global view padded to 1024 px,
+#               2-6 tiles of 768 px when a side is over 768 px; 257 + 144 x tiles image tokens)
+#   decoding    greedy, max 8192 tokens (max_model_len 8192), special tokens kept, and the no-repeat n-gram
+#               logits processor with ngram_size 40, window 90, <td>/</td> (128821, 128822) whitelisted
+#   postprocess clean_formula, then every <|ref|>..<|/ref|><|det|>..<|/det|> grounding span removed
+#               (image regions too) and runs of blank lines collapsed, exactly as the eval script writes .md
+# Native vLLM support (DeepseekOCR2ForCausalLM) replaces the repo's custom vLLM 0.8.5 code.
+# --------------------------------------------------------------------------------------------------------
+DEEPSEEK_OCR2_PROMPT = "<|grounding|>Convert the document to markdown."
+_DS_REF_DET = re.compile(r"(<\|ref\|>(.*?)<\|/ref\|><\|det\|>(.*?)<\|/det\|>)", re.DOTALL)
+_DS_EOS = "<｜end▁of▁sentence｜>"
+
+
+def _ds_clean_formula(text: str) -> str:
+    r"""clean_formula from run_dpsk_ocr2_eval_batch.py: drop "\quad (n)" equation tags inside \[...\]."""
+    def one(m):
+        formula = re.sub(r"\\quad\s*\([^)]*\)", "", m.group(1)).strip()
+        return r"\[" + formula + r"\]"
+    return re.sub(r"\\\[(.*?)\\\]", one, text)
+
+
+def deepseek_ocr2_postprocess(raw: str) -> str:
+    content = _ds_clean_formula((raw or "").replace(_DS_EOS, ""))   # EOS: only if an engine leaves it in
+    for span, _, _ in _DS_REF_DET.findall(content):
+        content = content.replace(span, "").replace("\n\n\n\n", "\n\n").replace("\n\n\n", "\n\n")
+    return content
+
+
+# --------------------------------------------------------------------------------------------------------
 # The registry
 #   repo                  default weights (override with --ckpt, e.g. a fine-tuned copy)
 #   prompt                page-parsing prompt (ThaiOCRBench uses each item's own question instead)
@@ -390,7 +423,9 @@ def nemotron_parse_postprocess(raw: str) -> str:
 #   mm_processor_kwargs   vLLM image processor limits (None = the model's own)
 #   llm_extra             extra vllm.LLM(...) arguments
 #   runner                a model that is a multi-stage pipeline instead of one prompt (PaddleOCR-VL)
+#   vllm_env              environment variables set before vLLM starts (e.g. which model runner)
 #   raw_prompt            True: no chat template; llm.generate on text_prefix + prompt (OpenThai / Parse)
+#   tokenization_kwargs   raw_prompt only: how vLLM tokenizes the prompt (default: adds BOS, as DeepSeek-OCR-2 needs)
 #   sampling_extra        extra SamplingParams (top_k, repetition_penalty, skip_special_tokens, ...)
 #   setup(model)          called once with the weights path before inference
 #   not_applicable        benchmarks the model cannot run (no free-form questions -> no ThaiOCRBench)
@@ -412,6 +447,7 @@ _NEMOTRON_PARSE = {
     "prompt": NEMOTRON_PARSE_PROMPT,
     "raw_prompt": True,
     "text_prefix": "<pad>",              # the image placeholder, no newline after it
+    "tokenization_kwargs": {"add_special_tokens": False},   # docs/serving.md: no BOS/EOS added to the prompt
     "setup": _nemotron_parse_setup,
     "preprocess": lambda im: im,         # the processor resizes
     "postprocess": nemotron_parse_postprocess,
@@ -490,6 +526,31 @@ MODELS = {
     },
     "openthai2.0-ocr-markdown": {**_NEMOTRON_PARSE, "repo": OPENTHAI_REPO},
     "nemotron-3.5-parse": {**_NEMOTRON_PARSE, "repo": NEMOTRON_PARSE_REPO},
+    "deepseek-ocr-2": {
+        "repo": "deepseek-ai/DeepSeek-OCR-2",
+        "prompt": DEEPSEEK_OCR2_PROMPT,
+        "raw_prompt": True,
+        "text_prefix": "<image>\n",           # ThaiOCRBench: "<image>\n" + the item's question
+        "preprocess": lambda im: im,          # vLLM's processor tiles the page
+        "postprocess": deepseek_ocr2_postprocess,
+        "max_tokens": 8192, "max_model_len": 8192,
+        "temperature": 0.0, "top_p": 1.0, "stop": None,
+        "sampling_extra": {"skip_special_tokens": False,
+                           "extra_args": {"ngram_size": 40, "window_size": 90,
+                                          "whitelist_token_ids": {128821, 128822}}},   # <td>, </td>
+        "mm_processor_kwargs": None,
+        "trust_remote_code": True,
+        "llm_extra": {"enable_prefix_caching": False, "mm_processor_cache_gb": 0, "gpu_memory_utilization": 0.7,
+                      "logits_processors": ["vllm.model_executor.models.deepseek_ocr:NGramPerReqLogitsProcessor"]},
+        # VLLM_USE_V2_MODEL_RUNNER=0: vLLM's n-gram processor is written for the V1 model runner; vLLM 0.33
+        # defaults to Model Runner V2, which only takes processors of its own interface (no-op on older vLLM).
+        # TRITON_ALLOW_NON_CONSTEXPR_GLOBALS=1: vLLM 0.33's fused DeepEncoder attention kernel reads LOG2E, a plain
+        # float in vllm.triton_utils, which Triton 3.8 rejects; this lets Triton inline it (same math).
+        # VLLM_USE_FLASHINFER_SAMPLER=0: the V1 runner otherwise JIT-builds FlashInfer's top-k/top-p sampler at
+        # startup (needs a host C++ compiler); decoding is greedy, which never uses that sampler.
+        "vllm_env": {"VLLM_USE_V2_MODEL_RUNNER": "0", "TRITON_ALLOW_NON_CONSTEXPR_GLOBALS": "1",
+                     "VLLM_USE_FLASHINFER_SAMPLER": "0"},
+    },
 }
 
 

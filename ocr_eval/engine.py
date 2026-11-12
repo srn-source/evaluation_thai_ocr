@@ -20,6 +20,7 @@ def write_output(path: str, text: str):
 
 
 def build_engine(spec, args):
+    os.environ.update(spec.get("vllm_env", {}))   # before vLLM reads its settings (the engine process inherits it)
     from vllm import LLM
 
     kwargs = dict(model=args.model, max_model_len=spec["max_model_len"], tensor_parallel_size=args.tensor_parallel_size,
@@ -80,7 +81,7 @@ def build_request(spec, image: Image.Image, text: str, system_prompt: str = None
 
 def generate(llm, spec, batch, sampling, extra, use_tqdm=True):
     if spec.get("raw_prompt"):
-        return llm.generate(batch, sampling, use_tqdm=use_tqdm, tokenization_kwargs={"add_special_tokens": False})
+        return llm.generate(batch, sampling, use_tqdm=use_tqdm, tokenization_kwargs=spec.get("tokenization_kwargs"))
     return llm.chat(batch, sampling, use_tqdm=use_tqdm, **extra)
 
 

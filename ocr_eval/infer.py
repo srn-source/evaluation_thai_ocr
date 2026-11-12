@@ -130,11 +130,11 @@ def run_thai(spec, args):
             except Exception as e:
                 print(f"Skipping id={item.get('Id')} ({type(e).__name__}: {e})")
                 continue
-            batch.append(engine.build_messages(spec, img, item["question"], spec.get("vqa_system_prompt")))
+            batch.append(engine.build_request(spec, img, item["question"], spec.get("vqa_system_prompt")))
             refs.append(item)
         if not batch:
             continue
-        for res, item in zip(llm.chat(batch, sampling, use_tqdm=False, **extra), refs):
+        for res, item in zip(engine.generate(llm, spec, batch, sampling, extra, use_tqdm=False), refs):
             preds.append({"type": item["Task"], "id": item["Id"], "question": item["question"],
                           "answers": [item["answer"]], "predict": vqa_clean(res.outputs[0].text)})
         os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
