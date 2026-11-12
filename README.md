@@ -1,6 +1,6 @@
 # Thai OCR evaluation
 
-Code to reproduce the benchmark results of [Typhoon OCR V2](https://huggingface.co/typhoon-ai/typhoon-ocr2-2b): 9 OCR models on 5 document benchmarks, each model run with its own prompt, image preprocessing and output conversion, and each benchmark scored with its own official scorer.
+Code to reproduce the benchmark results of [Typhoon OCR V2](https://huggingface.co/typhoon-ai/typhoon-ocr2-2b): 11 OCR models on 5 document benchmarks, each model run with its own prompt, image preprocessing and output conversion, and each benchmark scored with its own official scorer.
 
 ```bash
 python run_all_benchmarks.py --ckpt typhoon-ai/typhoon-ocr2-2b
@@ -36,7 +36,7 @@ Everything that defines how a model is run is in [ocr_eval/models.py](ocr_eval/m
 
 ## Results
 
-These are the numbers on the [Typhoon OCR V2 model card](https://huggingface.co/typhoon-ai/typhoon-ocr2-2b#results), produced with this code. Typhoon OCR V2 and Infinity-Parser2-Flash were run with vLLM 0.27.1 in eager mode. Typhoon OCR 1.5's MDPBench scores were measured with vLLM 0.33.0; with vLLM 0.27.1 in its default mode it scored 62.8 (64.3 on Thai pages). OpenThai2.0-OCR-Markdown was run with vLLM 0.33.0; it writes formulas as Unicode text instead of LaTeX, so the formula metrics count them as wrong. DeepSeek-OCR-2 was run with vLLM 0.33.0 (V1 model runner, for its no-repeat n-gram logits processor); on photographed pages it often repeats itself until the token limit.
+These are the numbers on the [Typhoon OCR V2 model card](https://huggingface.co/typhoon-ai/typhoon-ocr2-2b#results), produced with this code. Typhoon OCR V2 and Infinity-Parser2-Flash were run with vLLM 0.27.1 in eager mode. Typhoon OCR 1.5's MDPBench scores were measured with vLLM 0.33.0; with vLLM 0.27.1 in its default mode it scored 62.8 (64.3 on Thai pages). OpenThai2.0-OCR-Markdown and Nemotron 3.5 Parse were run with vLLM 0.33.0. For both, two things in the output are normalized without changing the content: the `rowspan="1"` and `colspan="1"` attributes that NVIDIA's post-processing puts on every table cell are removed (the table edit distance counts them as errors), and the Thai vowel sara am is written as U+0E33 (the tokenizer can only produce U+0E4D U+0E32). DeepSeek-OCR-2 was run with vLLM 0.33.0 (V1 model runner, for its no-repeat n-gram logits processor); on photographed pages it often repeats itself until the token limit.
 
 | Model | MDPBench ↑ | MDPBench TH ↑ | olmOCR-bench ↑ | ThaiOCRBench ↑ | SEA-DocBench NED ↓ | OmniDocBench v1.6 ↑ |
 |---|---:|---:|---:|---:|---:|---:|
@@ -45,11 +45,20 @@ These are the numbers on the [Typhoon OCR V2 model card](https://huggingface.co/
 | PaddleOCR-VL-1.6 | 72.5 | 68.4 | 80.8 | n/a | 0.1323 | 95.83 |
 | OvisOCR2 | 47.7 | 14.7 | 72.3 | 10.2 | 0.3843 | 96.34 |
 | Infinity-Parser2-Flash | 68.3 | 61.3 | 84.4 | 35.0 | 0.1266 | 91.03 |
-| OpenThai2.0-OCR-Markdown | 67.8 | 68.3 | 51.2 | n/a | 0.4227 | 61.57 |
+| Nemotron 3.5 Parse | 74.7 | 75.9 | 62.7 | n/a | 0.1046† | 80.13 |
+| OpenThai2.0-OCR-Markdown | 68.6 | 69.7 | 51.2 | n/a | 0.3342 | 62.02 |
 | DeepSeek-OCR-2 | 48.9 | 40.7 | 78.2 | 10.1 | 0.1356 | 90.05 |
 | Typhoon OCR 1.5 | 66.0 | 68.9 | 62.0 | 40.5 | 0.1726 | 70.97 |
 | Typhoon OCR V2 0.8B | 77.4 | 77.2 | 81.7 | 36.4 | 0.1081 | 89.37 |
 | Typhoon OCR V2 2B | 79.8 | 81.3 | 84.7 | 59.9 | 0.1153 | 90.97 |
+
+† Nemotron 3.5 Parse's SEA-DocBench NED is not directly comparable. It writes most display formulas inline, and on the Thai pages the scorer counted all of them as text, so its Thai NED averages three parts instead of four. Counting only text, tables and reading order for every model, it scores 0.075, close to the best (Typhoon OCR V2 2B and dots.mocr, both 0.074).
+
+**Reading OpenThai2.0-OCR-Markdown's scores.** Its low olmOCR-bench, SEA-DocBench and OmniDocBench scores come mostly from formulas and from page headers and footers, not from how well it reads text and tables:
+
+- It writes formulas as plain text, and these benchmarks only accept LaTeX. It scores 2.3 and 0.0 on the two olmOCR-bench math categories, 24.6 on OmniDocBench's formula metric (CDM) and about 1.0 (the worst value) on SEA-DocBench's formula NED.
+- SEA-DocBench averages four parts with equal weight, so the formula part alone moves its NED from 0.114 (text, tables and reading order) to 0.334.
+- It keeps page headers and footers, as its official pipeline returns them. olmOCR-bench expects them to be left out, so it scores 23.4 on that category. On the other five olmOCR-bench categories it averages 76.8.
 
 Expect small differences between runs (a few tenths of a point on MDPBench), even with greedy decoding: vLLM's batching and its default compiled mode change some outputs slightly.
 

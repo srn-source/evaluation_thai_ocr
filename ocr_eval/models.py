@@ -329,7 +329,8 @@ def ovis_ocr2_postprocess(raw: str) -> str:
 #   decoding    GenerationSettings() for the full page: temperature 0.2, top_k 50, top_p 1.0,
 #               repetition_penalty 1.05, seed 0, max 8744 tokens, special tokens kept (the box/class tags)
 #   postprocess clean_raw_output -> postprocess_document(...)["markdown"]  (tables as HTML; all block
-#               classes kept, page headers and footers included, as DocumentParser returns them)
+#               classes kept, page headers and footers included, as DocumentParser returns them), then two
+#               content-neutral normalizations: unit rowspan/colspan attributes dropped, sara am composed
 # The postprocessing package (nemotron_parse/) ships inside the model repo and is imported from there.
 # Native vLLM support for this architecture (RadioMBartPrefixForCausalLM) needs vLLM 0.33 or newer.
 # --------------------------------------------------------------------------------------------------------
@@ -368,6 +369,23 @@ def _nemotron_parse_setup(model: str):
     print(f"[nemotron-parse] nemotron_parse postprocessing from {pkg}", flush=True)
 
 
+_UNIT_SPAN = re.compile(r'\s+(?:col|row)span="1"')
+
+
+def _drop_unit_spans(markdown: str) -> str:
+    """nemotron_parse writes rowspan="1" colspan="1" on every cell of most tables. That is the HTML default, so
+    dropping it changes nothing in the table, but the benchmarks' table edit distance (SEA-DocBench's table NED)
+    compares the HTML as text and counts those attributes as errors. TEDS is unaffected either way."""
+    return re.sub(r"<t[dh]\b[^>]*>", lambda m: _UNIT_SPAN.sub("", m.group(0)), markdown)
+
+
+def _compose_sara_am(text: str) -> str:
+    """The tokenizer normalizes to NFKC and has no U+0E33 (Thai sara am) in its vocabulary, so the model always
+    writes it as U+0E4D U+0E32. Both render the same; this puts the standard character back, which is what
+    the benchmarks' references use (their text metrics do not normalize it)."""
+    return text.replace("\u0e4d\u0e32", "\u0e33")
+
+
 def nemotron_parse_postprocess(raw: str) -> str:
     """DocumentParser.parse(mode="single") without the HTTP call: clean the raw output, then render it."""
     if "post" not in _NP:
@@ -376,7 +394,7 @@ def nemotron_parse_postprocess(raw: str) -> str:
     options = post.PostprocessOptions()
     raw = post.clean_raw_output(raw or "", deduplicate=options.deduplicate)
     try:
-        return post.postprocess_document(raw, options=options)["markdown"]
+        return _compose_sara_am(_drop_unit_spans(post.postprocess_document(raw, options=options)["markdown"]))
     except Exception as e:   # keep the page's text rather than nothing
         print(f"Warning: nemotron_parse postprocess failed ({type(e).__name__}: {e}); writing tag-stripped raw.")
         return re.sub(r"<x_[^>]+>|<y_[^>]+>|<class_[^>]+>", "", raw).strip()
