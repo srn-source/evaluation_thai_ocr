@@ -14,7 +14,10 @@ Chandra OCR 2           chandra-ocr-2            needs `pip install chandra-ocr`
 dots.mocr               dots.mocr                needs a clone of github.com/rednote-hilab/dots.mocr (DOTS_MOCR_REPO)
 PaddleOCR-VL-1.6        paddleocr-vl-1.6         official 2-stage pipeline in a separate PaddlePaddle env
 OvisOCR2                ovisocr2                 Markdown prompt from its model card
+OpenThai2.0-OCR-Markdown openthai2.0-ocr-markdown Nemotron 3.5 Parse fine-tune; vLLM >= 0.33; Parse's own postprocessing
+Nemotron 3.5 Parse      nemotron-3.5-parse       the base model of OpenThai2.0; same recipe
 """
+import importlib.util
 import json
 import os
 import re
@@ -315,6 +318,70 @@ def ovis_ocr2_postprocess(raw: str) -> str:
 
 
 # --------------------------------------------------------------------------------------------------------
+# NVIDIA Nemotron 3.5 Parse (0.63B, RADIO encoder + mBART decoder) and its Thai fine-tune
+# OpenThai2.0-OCR-Markdown (iapp). The two repos differ only in the weights: config, processor, tokenizer
+# and the nemotron_parse/ package are byte-identical. Both cards say to use NVIDIA's DocumentParser,
+# mode="single" (box-and-class prompt, one pass per page). So, from nemotron_parse/inference.py:
+#   prompt      PROMPT, a string of task tokens with no free text; offline vLLM puts one "<pad>" image
+#               placeholder directly before it and tokenizes with add_special_tokens=False (docs/serving.md)
+#   preprocess  none: the model's processor fits the page into 1664 x 2048 (no upscaling)
+#   decoding    GenerationSettings() for the full page: temperature 0.2, top_k 50, top_p 1.0,
+#               repetition_penalty 1.05, seed 0, max 8744 tokens, special tokens kept (the box/class tags)
+#   postprocess clean_raw_output -> postprocess_document(...)["markdown"]  (tables as HTML; all block
+#               classes kept, page headers and footers included, as DocumentParser returns them)
+# The postprocessing package (nemotron_parse/) ships inside the model repo and is imported from there.
+# Native vLLM support for this architecture (RadioMBartPrefixForCausalLM) needs vLLM 0.33 or newer.
+# --------------------------------------------------------------------------------------------------------
+OPENTHAI_REPO = "iapp/OpenThai2.0-OCR-Markdown"
+NEMOTRON_PARSE_REPO = "nvidia/Nemotron-3.5-Parse"
+NEMOTRON_PARSE_PROMPT = "</s><s><predict_bbox><predict_classes><output_markdown><predict_text_in_pic>"
+_NP = {}
+
+
+def _nemotron_parse_setup(model: str):
+    """Import nemotron_parse/ from the weights dir (a fine-tuned copy may carry its own), else from the
+    model's Hugging Face repo, or NVIDIA's for a local dir without it (only that folder is downloaded). It is loaded by file location, so the
+    repo's other top-level files and folders never land on sys.path."""
+    root = model if os.path.isdir(os.path.join(model, "nemotron_parse")) else None
+    if root is None:
+        from huggingface_hub import snapshot_download
+        root = snapshot_download(NEMOTRON_PARSE_REPO if os.path.isdir(model) else model, allow_patterns=["nemotron_parse/*"])
+    pkg = os.path.join(root, "nemotron_parse")
+    if not os.path.exists(os.path.join(pkg, "postprocessing.py")):
+        raise SystemExit(f"nemotron_parse/ not found in {root}")
+    spec = importlib.util.spec_from_file_location("nemotron_parse", os.path.join(pkg, "__init__.py"),
+                                                  submodule_search_locations=[pkg])
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules["nemotron_parse"] = mod
+    spec.loader.exec_module(mod)
+    from nemotron_parse import inference, postprocessing
+    assert inference.PROMPT == NEMOTRON_PARSE_PROMPT, "nemotron_parse changed its prompt; check the model repo"
+    s = inference.GenerationSettings()   # DocumentParser's full-page settings, checked against ours
+    ours = _NEMOTRON_PARSE
+    assert (s.temperature, s.top_p, s.max_tokens, s.seed) == (ours["temperature"], ours["top_p"],
+                                                             ours["max_tokens"], ours["seed"]) and \
+        (s.top_k, s.repetition_penalty) == (ours["sampling_extra"]["top_k"],
+                                            ours["sampling_extra"]["repetition_penalty"]), \
+        f"nemotron_parse changed its default GenerationSettings ({s}); update the registry entry"
+    _NP["post"] = postprocessing
+    print(f"[nemotron-parse] nemotron_parse postprocessing from {pkg}", flush=True)
+
+
+def nemotron_parse_postprocess(raw: str) -> str:
+    """DocumentParser.parse(mode="single") without the HTTP call: clean the raw output, then render it."""
+    if "post" not in _NP:
+        raise RuntimeError("nemotron_parse is not loaded (setup was not called)")
+    post = _NP["post"]
+    options = post.PostprocessOptions()
+    raw = post.clean_raw_output(raw or "", deduplicate=options.deduplicate)
+    try:
+        return post.postprocess_document(raw, options=options)["markdown"]
+    except Exception as e:   # keep the page's text rather than nothing
+        print(f"Warning: nemotron_parse postprocess failed ({type(e).__name__}: {e}); writing tag-stripped raw.")
+        return re.sub(r"<x_[^>]+>|<y_[^>]+>|<class_[^>]+>", "", raw).strip()
+
+
+# --------------------------------------------------------------------------------------------------------
 # The registry
 #   repo                  default weights (override with --ckpt, e.g. a fine-tuned copy)
 #   prompt                page-parsing prompt (ThaiOCRBench uses each item's own question instead)
@@ -323,6 +390,10 @@ def ovis_ocr2_postprocess(raw: str) -> str:
 #   mm_processor_kwargs   vLLM image processor limits (None = the model's own)
 #   llm_extra             extra vllm.LLM(...) arguments
 #   runner                a model that is a multi-stage pipeline instead of one prompt (PaddleOCR-VL)
+#   raw_prompt            True: no chat template; llm.generate on text_prefix + prompt (OpenThai / Parse)
+#   sampling_extra        extra SamplingParams (top_k, repetition_penalty, skip_special_tokens, ...)
+#   setup(model)          called once with the weights path before inference
+#   not_applicable        benchmarks the model cannot run (no free-form questions -> no ThaiOCRBench)
 # --------------------------------------------------------------------------------------------------------
 _TYPHOON_OCR2 = {
     "prompt": DOC2JSON_PROMPT,
@@ -335,6 +406,22 @@ _TYPHOON_OCR2 = {
     "trust_remote_code": True,
     "chat_template_kwargs": {"enable_thinking": False},
     "llm_extra": {"enable_prefix_caching": False, "gpu_memory_utilization": 0.9},
+}
+
+_NEMOTRON_PARSE = {
+    "prompt": NEMOTRON_PARSE_PROMPT,
+    "raw_prompt": True,
+    "text_prefix": "<pad>",              # the image placeholder, no newline after it
+    "setup": _nemotron_parse_setup,
+    "preprocess": lambda im: im,         # the processor resizes
+    "postprocess": nemotron_parse_postprocess,
+    "max_tokens": 8744, "max_model_len": 16384,   # 3,329 image tokens + prompt + 8,744 new tokens
+    "temperature": 0.2, "top_p": 1.0, "seed": 0, "stop": None,
+    "sampling_extra": {"top_k": 50, "repetition_penalty": 1.05, "skip_special_tokens": False},
+    "mm_processor_kwargs": None,
+    "trust_remote_code": True,
+    "llm_extra": {"enable_prefix_caching": False, "gpu_memory_utilization": 0.7},
+    "not_applicable": {"thai"},          # fixed task prompts only, no free-form questions
 }
 
 MODELS = {
@@ -401,6 +488,8 @@ MODELS = {
         "llm_extra": {"enable_prefix_caching": False, "gpu_memory_utilization": 0.7,
                       "gdn_prefill_backend": "triton"},
     },
+    "openthai2.0-ocr-markdown": {**_NEMOTRON_PARSE, "repo": OPENTHAI_REPO},
+    "nemotron-3.5-parse": {**_NEMOTRON_PARSE, "repo": NEMOTRON_PARSE_REPO},
 }
 
 

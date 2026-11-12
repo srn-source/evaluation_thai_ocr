@@ -6,8 +6,8 @@
     python run_all_benchmarks.py --model typhoon-ocr2-2b --ckpt /path/to/my-finetune --name my_finetune
 
 Models (--model; see ocr_eval/models.py): typhoon-ocr2-2b, typhoon-ocr2-0.8b, infinity-parser2-flash,
-typhoon-ocr1.5-2b, chandra-ocr-2, dots.mocr, paddleocr-vl-1.6, ovisocr2. With only --ckpt, the model whose
-default weights are --ckpt is used.
+typhoon-ocr1.5-2b, chandra-ocr-2, dots.mocr, paddleocr-vl-1.6, ovisocr2, openthai2.0-ocr-markdown,
+nemotron-3.5-parse. With only --ckpt, the model whose default weights are --ckpt is used.
 
 Benchmarks (--benchmarks, default all, in this order):
   mdp     MDPBench, English + Thai pages      ocr_eval.infer -> pdf_validation.py -> tools/calculate_scores.py
@@ -227,6 +227,10 @@ def bench_olmocr(r: Run):
     final = out.split("Final Summary")[-1]
     m = re.search(r"Average Score:\s*([\d.]+)%\s*±\s*([\d.]+)%", final)
     if not m:
+        if "FAILED (errors)" in final:
+            raise RuntimeError("olmOCR-bench tests raised errors, so it gives no score; see the first [ERROR] in "
+                               f"{r.log_dir / 'olmocr_2_score.log'} (often: headless Chromium for the math tests "
+                               "cannot start; run `playwright install --with-deps chromium` or set LD_LIBRARY_PATH)")
         raise RuntimeError("could not find 'Average Score' in the olmOCR-bench output")
     metrics = {"overall": float(m.group(1)), "overall_ci": float(m.group(2))}
     for mj in re.finditer(r"^\s+(\S+?)(?:\.jsonl)?\s*:\s*([\d.]+)% \((\d+)/(\d+) tests\)", final, re.M):

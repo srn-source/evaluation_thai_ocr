@@ -19,6 +19,7 @@ import glob
 import io
 import json
 import os
+import shutil
 import sys
 
 from PIL import Image
@@ -69,6 +70,10 @@ def jobs_docbench(args):
 def jobs_olmocr(args):
     """olmOCR-bench ships one-page PDFs; render page 1 with olmocr's own renderer (pdftoppm), longest side
     2048 px, then run the model on that image."""
+    missing = [t for t in ("pdftoppm", "pdfinfo") if not shutil.which(t)]
+    if missing:
+        raise SystemExit(f"olmocr: {', '.join(missing)} not found on PATH; install poppler in the inference env "
+                         "(conda install -c conda-forge poppler, or apt install poppler-utils)")
     sys.path.insert(0, args.olmocr_repo)
     from olmocr.data.renderpdf import render_pdf_to_base64png
 
@@ -103,7 +108,7 @@ def run_thai(spec, args):
     """ThaiOCRBench: each item's own question is the prompt (wrapped as in the benchmark's run_inference.py),
     and the answer is only stripped, not converted. Model loading, image preprocessing and decoding are the
     same as for page parsing."""
-    if spec.get("runner"):
+    if spec.get("runner") or "thai" in spec.get("not_applicable", ()):
         raise SystemExit(f"{args.model_key} has no free-form question mode; ThaiOCRBench does not apply")
     from datasets import load_dataset
 
@@ -161,6 +166,8 @@ def main():
     spec = resolve(args.model_key, upscale=args.upscale, max_pixels=args.max_pixels)
     args.model = args.model or spec["repo"]
     print(f"[{args.bench}] model={args.model_key} weights={args.model}", flush=True)
+    if spec.get("setup"):
+        spec["setup"](args.model)
 
     if args.bench == "thai":
         import multiprocessing
@@ -170,8 +177,11 @@ def main():
     if not jobs:
         print("Nothing to do: all outputs exist (use --force to regenerate).")
         return
-    engine.run_pages(jobs, spec, args, open_image=opener)
-    print(f"Wrote {len(jobs)} files under {args.out}")
+    skipped = engine.run_pages(jobs, spec, args, open_image=opener)
+    print(f"Wrote {len(jobs) - len(skipped)} of {len(jobs)} files under {args.out}")
+    if skipped:
+        raise SystemExit(f"{len(skipped)} pages could not be read (see 'Skipping unreadable page' above); "
+                         "they would count as failures, so fix the cause and re-run")
 
 
 if __name__ == "__main__":

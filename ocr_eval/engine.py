@@ -45,6 +45,7 @@ def build_sampling(spec):
         kwargs["stop"] = spec["stop"]
     if spec.get("seed") is not None:
         kwargs["seed"] = spec["seed"]
+    kwargs.update(spec.get("sampling_extra", {}))
     return SamplingParams(**kwargs)
 
 
@@ -70,6 +71,19 @@ def build_messages(spec, image: Image.Image, text: str, system_prompt: str = Non
     return msgs
 
 
+def build_request(spec, image: Image.Image, text: str, system_prompt: str = None):
+    """A chat conversation, or for raw_prompt models a plain prompt with the image (no chat template)."""
+    if spec.get("raw_prompt"):
+        return {"prompt": spec.get("text_prefix", "") + text, "multi_modal_data": {"image": image}}
+    return build_messages(spec, image, text, system_prompt)
+
+
+def generate(llm, spec, batch, sampling, extra, use_tqdm=True):
+    if spec.get("raw_prompt"):
+        return llm.generate(batch, sampling, use_tqdm=use_tqdm, tokenization_kwargs={"add_special_tokens": False})
+    return llm.chat(batch, sampling, use_tqdm=use_tqdm, **extra)
+
+
 def postprocess(spec, raw: str, origin: Image.Image, image: Image.Image) -> str:
     if spec.get("postprocess_ctx"):
         return spec["postprocess_ctx"](raw, origin, image)
@@ -78,15 +92,17 @@ def postprocess(spec, raw: str, origin: Image.Image, image: Image.Image) -> str:
 
 def run_pages(jobs, spec, args, open_image=None):
     """Parse pages: jobs = [(out_path, source)]; `open_image(source)` returns the page as PIL
-    (default: open an image file). Writes one Markdown file per page."""
+    (default: open an image file). Writes one Markdown file per page; returns the sources it could not read."""
     open_image = open_image or (lambda src: Image.open(src).convert("RGB"))
     if spec.get("runner") == "paddleocr_vl":
         from .paddle_vl import run_paddleocr_vl
-        return run_paddleocr_vl(jobs, spec, args, open_image)
+        run_paddleocr_vl(jobs, spec, args, open_image)
+        return []
 
     llm = build_engine(spec, args)
     sampling = build_sampling(spec)
     extra = chat_kwargs(spec)
+    skipped = []
     # chunks of 200 pages: bounded memory, files written as we go
     for i in tqdm(range(0, len(jobs), args.chunk_size), desc=f"{args.model_key}", unit="chunk"):
         batch, outs, geoms = [], [], []
@@ -96,15 +112,17 @@ def run_pages(jobs, spec, args, open_image=None):
                 img = spec["preprocess"](origin)
             except Exception as e:
                 print(f"Skipping unreadable page {src} ({type(e).__name__}: {e})")
+                skipped.append(src)
                 continue
-            batch.append(build_messages(spec, img, spec["prompt"], spec.get("system_prompt")))
+            batch.append(build_request(spec, img, spec["prompt"], spec.get("system_prompt")))
             outs.append(out_path)
             geoms.append((origin, img))
         if not batch:
             continue
-        results = llm.chat(batch, sampling, use_tqdm=True, **extra)
+        results = generate(llm, spec, batch, sampling, extra)
         for out_path, res, (origin, img) in zip(outs, results, geoms):
             raw = res.outputs[0].text
             write_output(out_path, postprocess(spec, raw, origin, img))
             if args.save_raw:
                 write_output(os.path.splitext(out_path)[0] + ".raw.txt", raw)
+    return skipped
