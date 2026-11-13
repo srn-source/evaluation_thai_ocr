@@ -70,6 +70,8 @@ class Run:
                 self.name += f"__up{args.upscale}"
             if args.enforce_eager:
                 self.name += "__eager"
+            if args.spec_model:
+                self.name += f"__{args.spec_method}k{args.num_spec_tokens}"
         self.res_dir, self.log_dir = RESULTS_DIR / self.name, LOG_DIR / self.name
         self.env = dict(os.environ, CUDA_VISIBLE_DEVICES=str(args.gpu), PYTHONIOENCODING="utf-8", PYTHONUTF8="1",
                         PYTHONUNBUFFERED="1", TOKENIZERS_PARALLELISM="false")
@@ -88,6 +90,10 @@ class Run:
             cmd += ["--gpu-memory-utilization", str(a.gpu_mem)]
         if a.enforce_eager:
             cmd.append("--enforce-eager")
+        if a.spec_model:
+            spec_model = os.path.abspath(a.spec_model) if os.path.isdir(a.spec_model) else a.spec_model
+            cmd += ["--spec-model", spec_model, "--spec-method", a.spec_method,
+                    "--num-spec-tokens", str(a.num_spec_tokens)]
         if a.upscale:
             cmd += ["--upscale", str(a.upscale)]
         if a.max_pixels:
@@ -133,6 +139,8 @@ class Run:
         a = self.args
         return {"run": self.name, "bench": bench, "model": self.key, "weights": self.weights,
                 "enforce_eager": a.enforce_eager, "upscale": a.upscale, "max_pixels": a.max_pixels,
+                **({"spec_model": a.spec_model, "spec_method": a.spec_method, "num_spec_tokens": a.num_spec_tokens}
+                   if a.spec_model else {}),
                 "metrics": metrics, "paths": {k: str(v) for k, v in paths.items()},
                 "finished_at": dt.datetime.now().isoformat(timespec="seconds")}
 
@@ -427,6 +435,11 @@ def main():
     ap.add_argument("--tp", type=int, default=1, help="tensor parallel size")
     ap.add_argument("--enforce-eager", action="store_true",
                     help="vLLM eager mode; needed for Qwen3.5-based models on vLLM < 0.30 (run name gets __eager)")
+    ap.add_argument("--spec-model", default=None,
+                    help="speculative decoding with this draft head (local dir or HF id), e.g. an EAGLE-3 head "
+                         "(run name gets __<method>k<n>)")
+    ap.add_argument("--spec-method", default="eagle3", help="vLLM speculative method for --spec-model (default eagle3)")
+    ap.add_argument("--num-spec-tokens", type=int, default=3, help="draft tokens proposed per step (default 3)")
     ap.add_argument("--upscale", type=int, default=0, metavar="PX",
                     help="enlarge images under PX px (long side) to PX before inference (run name gets __up<PX>)")
     ap.add_argument("--max-pixels", type=int, default=None, help="override the image processor's max_pixels")

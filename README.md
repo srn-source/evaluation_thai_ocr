@@ -105,6 +105,10 @@ python run_all_benchmarks.py --model chandra-ocr-2 --benchmarks mdp thai --gpu 1
 
 # your own fine-tune with the Typhoon OCR V2 recipe
 python run_all_benchmarks.py --model typhoon-ocr2-2b --ckpt /path/to/checkpoint --name my_finetune
+
+# Typhoon OCR V2 with its EAGLE-3 draft head (speculative decoding; run name typhoon-ocr2-2b__eagle3k3)
+python run_all_benchmarks.py --ckpt typhoon-ai/typhoon-ocr2-2b --benchmarks mdp \
+  --spec-model typhoon-ai/typhoon-ocr2-2b-eagle3
 ```
 
 | Option | Meaning |
@@ -113,8 +117,9 @@ python run_all_benchmarks.py --model typhoon-ocr2-2b --ckpt /path/to/checkpoint 
 | `--benchmarks` | any of `mdp olmocr thai sea omni` (default: all, in that order) |
 | `--gpu`, `--gpu-mem`, `--tp` | GPU(s), vLLM memory share, tensor parallel size |
 | `--enforce-eager` | vLLM eager mode (needed on vLLM < 0.30 for the Qwen3.5-based models) |
+| `--spec-model`, `--num-spec-tokens` | speculative decoding with a draft head (local dir or Hugging Face id), e.g. [typhoon-ai/typhoon-ocr2-2b-eagle3](https://huggingface.co/typhoon-ai/typhoon-ocr2-2b-eagle3) or [typhoon-ai/typhoon-ocr2-0.8b-eagle3](https://huggingface.co/typhoon-ai/typhoon-ocr2-0.8b-eagle3) (`--spec-method`, default `eagle3`; 3 draft tokens by default). Tested with vLLM 0.33.0; not available for PaddleOCR-VL. Greedy outputs can differ slightly from decoding without it, as they do between repeated vLLM runs |
 | `--upscale PX` | enlarge images whose long side is under PX px before inference (e.g. 1600; raises ThaiOCRBench for Typhoon OCR V2) |
-| `--name` | run name (default: the model key, plus `__eager`, `__up1600`, ... for non-default settings) |
+| `--name` | run name (default: the model key, plus `__eager`, `__eagle3k3`, `__up1600`, ... for non-default settings) |
 | `--skip-infer`, `--rescore`, `--force` | score existing predictions only, re-score, or regenerate predictions |
 | `--report-only`, `--dry-run` | rebuild `RESULTS.md`, or print the commands without running them |
 

@@ -154,6 +154,10 @@ def main():
     ap.add_argument("--olmocr-repo", default=None, help="olmocr: clone of allenai/olmocr (for its PDF renderer)")
     ap.add_argument("--gpu-memory-utilization", type=float, default=None, help="vLLM override, e.g. 0.75 on a shared GPU")
     ap.add_argument("--enforce-eager", action="store_true", help="vLLM eager mode (no torch.compile / CUDA graphs)")
+    ap.add_argument("--spec-model", default=None,
+                    help="speculative decoding: draft-head checkpoint (local dir or Hugging Face id), e.g. an EAGLE-3 head")
+    ap.add_argument("--spec-method", default="eagle3", help="vLLM speculative method for --spec-model (default eagle3)")
+    ap.add_argument("--num-spec-tokens", type=int, default=3, help="draft tokens proposed per step (default 3)")
     ap.add_argument("--upscale", type=int, default=0, metavar="PX",
                     help="enlarge images whose long side is under PX px to PX before the model's own preprocessing")
     ap.add_argument("--max-pixels", type=int, default=None, help="override the processor's max_pixels")
@@ -162,6 +166,8 @@ def main():
     ap.add_argument("--save-raw", action="store_true", help="also write each raw model output as <name>.raw.txt")
     ap.add_argument("--force", action="store_true", help="regenerate outputs that already exist")
     args = ap.parse_args()
+    if args.spec_model and os.path.isdir(args.spec_model):
+        args.spec_model = os.path.abspath(args.spec_model)
 
     spec = resolve(args.model_key, upscale=args.upscale, max_pixels=args.max_pixels)
     args.model = args.model or spec["repo"]

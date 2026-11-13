@@ -34,6 +34,9 @@ def build_engine(spec, args):
         kwargs["gpu_memory_utilization"] = args.gpu_memory_utilization
     if args.enforce_eager:
         kwargs["enforce_eager"] = True
+    if getattr(args, "spec_model", None):   # speculative decoding with a trained draft head (e.g. EAGLE-3)
+        kwargs["speculative_config"] = {"method": args.spec_method, "model": args.spec_model,
+                                        "num_speculative_tokens": args.num_spec_tokens}
     print(f"Loading {args.model} with vLLM: {kwargs}", flush=True)
     return LLM(**kwargs)
 
@@ -96,6 +99,8 @@ def run_pages(jobs, spec, args, open_image=None):
     (default: open an image file). Writes one Markdown file per page; returns the sources it could not read."""
     open_image = open_image or (lambda src: Image.open(src).convert("RGB"))
     if spec.get("runner") == "paddleocr_vl":
+        if getattr(args, "spec_model", None):
+            raise SystemExit("--spec-model is not supported for PaddleOCR-VL (it runs through its own vllm serve recipe)")
         from .paddle_vl import run_paddleocr_vl
         run_paddleocr_vl(jobs, spec, args, open_image)
         return []
