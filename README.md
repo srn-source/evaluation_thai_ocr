@@ -36,7 +36,7 @@ Everything that defines how a model is run is in [ocr_eval/models.py](ocr_eval/m
 
 ## Results
 
-These are the numbers on the [Typhoon OCR V2 model card](https://huggingface.co/typhoon-ai/typhoon-ocr2-2b#results), produced with this code. Typhoon OCR V2 and Infinity-Parser2-Flash were run with vLLM 0.27.1 in eager mode. Typhoon OCR 1.5's MDPBench scores were measured with vLLM 0.33.0; with vLLM 0.27.1 in its default mode it scored 62.8 (64.3 on Thai pages). OpenThai2.0-OCR-Markdown and Nemotron 3.5 Parse were run with vLLM 0.33.0. For both, two things in the output are normalized without changing the content: the `rowspan="1"` and `colspan="1"` attributes that NVIDIA's post-processing puts on every table cell are removed (the table edit distance counts them as errors), and the Thai vowel sara am is written as U+0E33 (the tokenizer can only produce U+0E4D U+0E32). DeepSeek-OCR-2 was run with vLLM 0.33.0 (V1 model runner, for its no-repeat n-gram logits processor); on photographed pages it often repeats itself until the token limit.
+These are the numbers on the [Typhoon OCR V2 model card](https://huggingface.co/typhoon-ai/typhoon-ocr2-2b#results), produced with this code. Typhoon OCR V2 and Infinity-Parser2-Flash were run with vLLM 0.27.1 in eager mode and without `--upscale`. Typhoon OCR 1.5's MDPBench scores were measured with vLLM 0.33.0. OpenThai2.0-OCR-Markdown and Nemotron 3.5 Parse were run with vLLM 0.33.0. For both, two things in the output are normalized without changing the content: the `rowspan="1"` and `colspan="1"` attributes that NVIDIA's post-processing puts on every table cell are removed (the table edit distance counts them as errors), and the Thai vowel sara am is written as U+0E33 (the tokenizer can only produce U+0E4D U+0E32). DeepSeek-OCR-2 was run with vLLM 0.33.0 (V1 model runner, for its no-repeat n-gram logits processor); on photographed pages it often repeats itself until the token limit.
 
 | Model | MDPBench ↑ | MDPBench TH ↑ | olmOCR-bench ↑ | ThaiOCRBench ↑ | SEA-DocBench NED ↓ | OmniDocBench v1.6 ↑ |
 |---|---:|---:|---:|---:|---:|---:|
@@ -90,7 +90,7 @@ The benchmarks' scorers have conflicting dependencies, so we use separate enviro
 
 The inference environment also needs poppler (`pdftoppm`, `pdfinfo`; e.g. `apt install poppler-utils` or `conda install -c conda-forge poppler`) to render olmOCR-bench PDFs, `pip install chandra-ocr` for Chandra OCR 2, and `PyMuPDF` for dots.mocr.
 
-**vLLM version.** Typhoon OCR V2, Infinity-Parser2 and OvisOCR2 are based on Qwen3.5. With vLLM older than 0.30, vLLM's default compiled mode lowers their accuracy (MDPBench 70.8 instead of 79.8 for Typhoon OCR V2 2B on vLLM 0.27.1); add `--enforce-eager` there. With vLLM 0.30.0 and 0.33.0 the default mode scored 79.6 and 79.7.
+**vLLM version.** Use vLLM 0.30 or newer.
 
 ## Usage
 
@@ -102,6 +102,9 @@ python run_all_benchmarks.py --ckpt typhoon-ai/typhoon-ocr2-2b \
 
 # some benchmarks only, on GPU 1, sharing the GPU
 python run_all_benchmarks.py --model chandra-ocr-2 --benchmarks mdp thai --gpu 1 --gpu-mem 0.75
+
+# Typhoon OCR V2 as it should be used: small images enlarged to 1,600 px (run name typhoon-ocr2-2b__up1600)
+python run_all_benchmarks.py --ckpt typhoon-ai/typhoon-ocr2-2b --upscale 1600
 
 # your own fine-tune with the Typhoon OCR V2 recipe
 python run_all_benchmarks.py --model typhoon-ocr2-2b --ckpt /path/to/checkpoint --name my_finetune
@@ -116,9 +119,9 @@ python run_all_benchmarks.py --ckpt typhoon-ai/typhoon-ocr2-2b --benchmarks mdp 
 | `--model`, `--ckpt` | the recipe and the weights; `--ckpt` alone works for the models' own Hugging Face ids |
 | `--benchmarks` | any of `mdp olmocr thai sea omni` (default: all, in that order) |
 | `--gpu`, `--gpu-mem`, `--tp` | GPU(s), vLLM memory share, tensor parallel size |
-| `--enforce-eager` | vLLM eager mode (needed on vLLM < 0.30 for the Qwen3.5-based models) |
+| `--enforce-eager` | vLLM eager mode |
 | `--spec-model`, `--num-spec-tokens` | speculative decoding with a draft head (local dir or Hugging Face id), e.g. [typhoon-ai/typhoon-ocr2-2b-eagle3](https://huggingface.co/typhoon-ai/typhoon-ocr2-2b-eagle3) or [typhoon-ai/typhoon-ocr2-0.8b-eagle3](https://huggingface.co/typhoon-ai/typhoon-ocr2-0.8b-eagle3) (`--spec-method`, default `eagle3`; 3 draft tokens by default). Tested with vLLM 0.33.0; not available for PaddleOCR-VL. Greedy outputs can differ slightly from decoding without it, as they do between repeated vLLM runs |
-| `--upscale PX` | enlarge images whose long side is under PX px before inference (e.g. 1600; raises ThaiOCRBench for Typhoon OCR V2) |
+| `--upscale PX` | enlarge images whose long side is under PX px before inference. Typhoon OCR V2 needs `--upscale 1600`, as in normal use of the model (ThaiOCRBench 59.9 to 62.9 for the 2B model); the [Results](#results) above were measured without it |
 | `--name` | run name (default: the model key, plus `__eager`, `__eagle3k3`, `__up1600`, ... for non-default settings) |
 | `--skip-infer`, `--rescore`, `--force` | score existing predictions only, re-score, or regenerate predictions |
 | `--report-only`, `--dry-run` | rebuild `RESULTS.md`, or print the commands without running them |
