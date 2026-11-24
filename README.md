@@ -48,6 +48,7 @@ These are the numbers on the [Typhoon OCR V2 model card](https://huggingface.co/
 | Infinity-Parser2-Flash | 68.3 | 61.3 | 84.4 | 35.0 | 0.1266 | 91.03 |
 | Nemotron 3.5 Parse | 74.7 | 75.9 | 62.7 | n/a | 0.1046† | 80.13 |
 | OpenThai2.0-OCR-Markdown | 68.6 | 69.7 | 51.2 | n/a | 0.3342 | 62.02 |
+| OpenThai2.1-OCR-Markdown | 75.2 | 76.3 | 73.1 | n/a | 0.1274 | 79.16 |
 | DeepSeek-OCR-2 | 48.9 | 40.7 | 78.2 | 10.1 | 0.1356 | 90.05 |
 | Typhoon OCR 1.5 | 66.0 | 68.9 | 62.0 | 40.5 | 0.1726 | 70.97 |
 | Typhoon OCR V2 0.8B | 77.4 | 77.2 | 81.7 | 36.4 | 0.1081 | 89.37 |
@@ -55,7 +56,7 @@ These are the numbers on the [Typhoon OCR V2 model card](https://huggingface.co/
 
 † Nemotron 3.5 Parse's SEA-DocBench NED is not directly comparable. It writes most display formulas inline, and on the Thai pages the scorer counted all of them as text, so its Thai NED averages three parts instead of four. Counting only text, tables and reading order for every model, it scores 0.075, close to the best (Typhoon OCR V2 2B and dots.mocr, both 0.074).
 
-**Reading OpenThai2.0-OCR-Markdown's scores.** Its low olmOCR-bench, SEA-DocBench and OmniDocBench scores come mostly from formulas and from page headers and footers, not from how well it reads text and tables:
+**Reading OpenThai2.0-OCR-Markdown's scores.** Its low olmOCR-bench, SEA-DocBench and OmniDocBench scores come mostly from formulas and from page headers and footers, not from how well it reads text and tables: OpenThai2.1-OCR-Markdown's own post-processing leaves headers and footers out and writes formulas as LaTeX, which explains most of its gain over 2.0 on olmOCR-bench (73.1 against 51.2) and OmniDocBench (79.16 against 62.02).
 
 - It writes formulas as plain text, and these benchmarks only accept LaTeX. It scores 2.3 and 0.0 on the two olmOCR-bench math categories, 24.6 on OmniDocBench's formula metric (CDM) and about 1.0 (the worst value) on SEA-DocBench's formula NED.
 - SEA-DocBench averages four parts with equal weight, so the formula part alone moves its NED from 0.114 (text, tables and reading order) to 0.334.
