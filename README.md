@@ -1,6 +1,6 @@
 # Thai OCR evaluation
 
-Code to reproduce the benchmark results of [Typhoon OCR V2](https://huggingface.co/typhoon-ai/typhoon-ocr2-2b): 11 OCR models on 5 document benchmarks, each model run with its own prompt, image preprocessing and output conversion, and each benchmark scored with its own official scorer.
+Code to reproduce the benchmark results of [Typhoon OCR V2](https://huggingface.co/typhoon-ai/typhoon-ocr2-2b) ([technical report](https://arxiv.org/abs/2611.27494)): 12 OCR models on 5 document benchmarks, each model run with its own prompt, image preprocessing and output conversion, and each benchmark scored with its own official scorer.
 
 ```bash
 python run_all_benchmarks.py --ckpt typhoon-ai/typhoon-ocr2-2b
@@ -19,6 +19,7 @@ python run_all_benchmarks.py --ckpt typhoon-ai/typhoon-ocr2-2b
 | PaddleOCR-VL-1.6 | `paddleocr-vl-1.6` | [PaddlePaddle/PaddleOCR-VL-1.6](https://huggingface.co/PaddlePaddle/PaddleOCR-VL-1.6) | official two-stage pipeline (layout model + VLM); no ThaiOCRBench (no free-form questions) |
 | OvisOCR2 | `ovisocr2` | [ATH-MaaS/OvisOCR2](https://huggingface.co/ATH-MaaS/OvisOCR2) | prompt and post-processing from its model card |
 | OpenThai2.0-OCR-Markdown | `openthai2.0-ocr-markdown` | [iapp/OpenThai2.0-OCR-Markdown](https://huggingface.co/iapp/OpenThai2.0-OCR-Markdown) | Nemotron 3.5 Parse fine-tune, run as its card says (NVIDIA's `DocumentParser`, single pass; postprocessing imported from the model repo); needs vLLM 0.33 or newer; no ThaiOCRBench (no free-form questions) |
+| OpenThai2.1-OCR-Markdown | `openthai2.1-ocr-markdown` | [iapp/OpenThai2.1-OCR-Markdown-20261118](https://huggingface.co/iapp/OpenThai2.1-OCR-Markdown-20261118) (tag `v2.1.0`) | OpenThai2.0's successor, same recipe with its own 2.1 post-processing (page headers and footers left out of the Markdown, formulas as `$$...$$`) and its blank-page check (a blank page gets empty output); needs vLLM 0.33 or newer; no ThaiOCRBench |
 | Nemotron 3.5 Parse | `nemotron-3.5-parse` | [nvidia/Nemotron-3.5-Parse](https://huggingface.co/nvidia/Nemotron-3.5-Parse) | the base model of OpenThai2.0-OCR-Markdown; same recipe (the two repos differ only in their weights) |
 | DeepSeek-OCR-2 | `deepseek-ocr-2` | [deepseek-ai/DeepSeek-OCR-2](https://huggingface.co/deepseek-ai/DeepSeek-OCR-2) | prompt, decoding (with its no-repeat n-gram logits processor) and post-processing from its official OmniDocBench script |
 
@@ -83,7 +84,7 @@ The benchmarks' scorers have conflicting dependencies, so we use separate enviro
 
 | Environment | Used for | Install |
 |---|---|---|
-| inference (`--python`) | running the models | `pip install -r requirements.txt` (vLLM 0.30 or newer, see below; 0.33 or newer for OpenThai2.0-OCR-Markdown) |
+| inference (`--python`) | running the models | `pip install -r requirements.txt` (vLLM 0.30 or newer, see below; 0.33 or newer for OpenThai2.0 and 2.1) |
 | scoring (`--score-python`) | MDPBench, olmOCR-bench, ThaiOCRBench, SEA-DocBench | each benchmark's `requirements.txt`, `pip install -e "benchmarks/olmocr[bench]"` and `playwright install --with-deps chromium` (olmOCR-bench renders its math tests in headless Chromium; without root, install only the browser and point `LD_LIBRARY_PATH` at its system libraries) |
 | OmniDocBench (`--omni-python`) | OmniDocBench | Python 3.10 with OmniDocBench's dependencies; the formula metric (CDM) also needs TeX Live, ImageMagick and Ghostscript (put TeX Live's `bin` in `TEXLIVE_BIN`) |
 | PaddlePaddle (`PADDLE_PYTHON`) | PaddleOCR-VL-1.6 only | `pip install paddlepaddle-gpu` ([install guide](https://www.paddlepaddle.org.cn/install/quick)) and `pip install "paddleocr[doc-parser]>=3.6.0"` |
@@ -133,6 +134,22 @@ To run one model on one benchmark without scoring:
 ```bash
 python -m ocr_eval.infer --bench mdp --model-key typhoon-ocr2-2b \
   --data benchmarks/MultimodalOCR/MDPBench/MDPBench_dataset/MDPBench_img_public --out preds/mdp
+```
+
+## Citation
+
+If you use Typhoon OCR V2, please cite the [technical report](https://arxiv.org/abs/2611.27494):
+
+```bibtex
+@misc{nonesung2026typhoonocr2thai,
+      title={Typhoon OCR 2: From Thai Document Transcription to Multilingual, Multi-Task OCR},
+      author={Surapon Nonesung and Natapong Nitarach and Sittipong Sripaisarnmongkol and Kunat Pipatanakul and Warit Sirichotedumrong},
+      year={2026},
+      eprint={2611.27494},
+      archivePrefix={arXiv},
+      primaryClass={cs.CL},
+      url={https://arxiv.org/abs/2611.27494},
+}
 ```
 
 ## License

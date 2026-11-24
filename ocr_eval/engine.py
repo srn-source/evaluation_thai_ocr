@@ -34,6 +34,8 @@ def build_engine(spec, args):
         kwargs["gpu_memory_utilization"] = args.gpu_memory_utilization
     if args.enforce_eager:
         kwargs["enforce_eager"] = True
+    if spec.get("revision") and args.model == spec.get("repo"):   # a pinned tag of the model's own repo
+        kwargs["revision"] = kwargs["tokenizer_revision"] = spec["revision"]
     if getattr(args, "spec_model", None):   # speculative decoding with a trained draft head (e.g. EAGLE-3)
         kwargs["speculative_config"] = {"method": args.spec_method, "model": args.spec_model,
                                         "num_speculative_tokens": args.num_spec_tokens}

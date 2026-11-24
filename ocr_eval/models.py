@@ -15,6 +15,7 @@ dots.mocr               dots.mocr                needs a clone of github.com/red
 PaddleOCR-VL-1.6        paddleocr-vl-1.6         official 2-stage pipeline in a separate PaddlePaddle env
 OvisOCR2                ovisocr2                 Markdown prompt from its model card
 OpenThai2.0-OCR-Markdown openthai2.0-ocr-markdown Nemotron 3.5 Parse fine-tune; vLLM >= 0.33; Parse's own postprocessing
+OpenThai2.1-OCR-Markdown openthai2.1-ocr-markdown OpenThai2.0's successor (tag v2.1.0); same recipe, its own 2.1 postprocessing
 Nemotron 3.5 Parse      nemotron-3.5-parse       the base model of OpenThai2.0; same recipe
 DeepSeek-OCR-2          deepseek-ocr-2           grounding Markdown prompt, n-gram repeat blocker, official eval post-processing
 """
@@ -333,21 +334,35 @@ def ovis_ocr2_postprocess(raw: str) -> str:
 #               content-neutral normalizations: unit rowspan/colspan attributes dropped, sara am composed
 # The postprocessing package (nemotron_parse/) ships inside the model repo and is imported from there.
 # Native vLLM support for this architecture (RadioMBartPrefixForCausalLM) needs vLLM 0.33 or newer.
+#
+# OpenThai2.1-OCR-Markdown (iapp/OpenThai2.1-OCR-Markdown-20261118, pinned to tag v2.1.0): same config,
+# processor, prompt and GenerationSettings as 2.0; new weights and a new nemotron_parse/ package. Its card runs
+# it the same way (DocumentParser, mode="single"). What the 2.1 package changes, all taken from it as is:
+#   PostprocessOptions() defaults  page headers/footers left out of the Markdown, a Formula block written as
+#               $$...$$, sara am composed and unit spans dropped (our two normalizations are then no-ops)
+#   skip_blank  DocumentParser does not send a blank page (inference.is_blank_page on the page image) and
+#               returns empty Markdown; offline we run the page anyway and write "" when the check says blank
 # --------------------------------------------------------------------------------------------------------
 OPENTHAI_REPO = "iapp/OpenThai2.0-OCR-Markdown"
+OPENTHAI21_REPO = "iapp/OpenThai2.1-OCR-Markdown-20261118"
+OPENTHAI21_REVISION = "v2.1.0"
 NEMOTRON_PARSE_REPO = "nvidia/Nemotron-3.5-Parse"
 NEMOTRON_PARSE_PROMPT = "</s><s><predict_bbox><predict_classes><output_markdown><predict_text_in_pic>"
 _NP = {}
 
 
-def _nemotron_parse_setup(model: str):
+def _nemotron_parse_setup(model: str, revision: str = None, skip_blank: bool = False):
     """Import nemotron_parse/ from the weights dir (a fine-tuned copy may carry its own), else from the
-    model's Hugging Face repo, or NVIDIA's for a local dir without it (only that folder is downloaded). It is loaded by file location, so the
-    repo's other top-level files and folders never land on sys.path."""
+    model's Hugging Face repo (at `revision`), or NVIDIA's for a local dir without it (only that folder is
+    downloaded). It is loaded by file location, so the repo's other top-level files and folders never land on
+    sys.path. skip_blank: blank pages get empty output, as DocumentParser(skip_blank=True) does (OpenThai2.1)."""
     root = model if os.path.isdir(os.path.join(model, "nemotron_parse")) else None
     if root is None:
         from huggingface_hub import snapshot_download
-        root = snapshot_download(NEMOTRON_PARSE_REPO if os.path.isdir(model) else model, allow_patterns=["nemotron_parse/*"])
+        if os.path.isdir(model):
+            root = snapshot_download(NEMOTRON_PARSE_REPO, allow_patterns=["nemotron_parse/*"])
+        else:
+            root = snapshot_download(model, revision=revision, allow_patterns=["nemotron_parse/*"])
     pkg = os.path.join(root, "nemotron_parse")
     if not os.path.exists(os.path.join(pkg, "postprocessing.py")):
         raise SystemExit(f"nemotron_parse/ not found in {root}")
@@ -366,7 +381,15 @@ def _nemotron_parse_setup(model: str):
                                             ours["sampling_extra"]["repetition_penalty"]), \
         f"nemotron_parse changed its default GenerationSettings ({s}); update the registry entry"
     _NP["post"] = postprocessing
-    print(f"[nemotron-parse] nemotron_parse postprocessing from {pkg}", flush=True)
+    _NP["blank"] = None
+    if skip_blank:
+        import inspect
+        default = inspect.signature(inference.DocumentParser.__init__).parameters.get("skip_blank")
+        if not hasattr(inference, "is_blank_page") or default is None or default.default is not True:
+            raise SystemExit(f"{pkg} has no blank-page check (is_blank_page / skip_blank=True); check the model repo")
+        _NP["blank"] = inference.is_blank_page
+    print(f"[nemotron-parse] nemotron_parse postprocessing from {pkg}"
+          + (" (blank pages skipped, as DocumentParser does)" if skip_blank else ""), flush=True)
 
 
 _UNIT_SPAN = re.compile(r'\s+(?:col|row)span="1"')
@@ -398,6 +421,14 @@ def nemotron_parse_postprocess(raw: str) -> str:
     except Exception as e:   # keep the page's text rather than nothing
         print(f"Warning: nemotron_parse postprocess failed ({type(e).__name__}: {e}); writing tag-stripped raw.")
         return re.sub(r"<x_[^>]+>|<y_[^>]+>|<class_[^>]+>", "", raw).strip()
+
+
+def nemotron_parse_postprocess_ctx(raw: str, origin: Image.Image, image: Image.Image) -> str:
+    """As nemotron_parse_postprocess, but a page DocumentParser would not send (blank) gets empty Markdown."""
+    if _NP.get("blank") is not None and _NP["blank"](origin):
+        print("[nemotron-parse] blank page: empty output, as DocumentParser(skip_blank=True) returns", flush=True)
+        return ""
+    return nemotron_parse_postprocess(raw)
 
 
 # --------------------------------------------------------------------------------------------------------
@@ -446,6 +477,7 @@ def deepseek_ocr2_postprocess(raw: str) -> str:
 #   tokenization_kwargs   raw_prompt only: how vLLM tokenizes the prompt (default: adds BOS, as DeepSeek-OCR-2 needs)
 #   sampling_extra        extra SamplingParams (top_k, repetition_penalty, skip_special_tokens, ...)
 #   setup(model)          called once with the weights path before inference
+#   revision              Hugging Face revision (tag/branch) of `repo`, used when the weights are that repo
 #   not_applicable        benchmarks the model cannot run (no free-form questions -> no ThaiOCRBench)
 # --------------------------------------------------------------------------------------------------------
 _TYPHOON_OCR2 = {
@@ -543,6 +575,11 @@ MODELS = {
                       "gdn_prefill_backend": "triton"},
     },
     "openthai2.0-ocr-markdown": {**_NEMOTRON_PARSE, "repo": OPENTHAI_REPO},
+    "openthai2.1-ocr-markdown": {
+        **_NEMOTRON_PARSE, "repo": OPENTHAI21_REPO, "revision": OPENTHAI21_REVISION,
+        "setup": lambda model: _nemotron_parse_setup(model, revision=OPENTHAI21_REVISION, skip_blank=True),
+        "postprocess_ctx": nemotron_parse_postprocess_ctx,
+    },
     "nemotron-3.5-parse": {**_NEMOTRON_PARSE, "repo": NEMOTRON_PARSE_REPO},
     "deepseek-ocr-2": {
         "repo": "deepseek-ai/DeepSeek-OCR-2",

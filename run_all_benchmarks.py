@@ -6,7 +6,7 @@
     python run_all_benchmarks.py --model typhoon-ocr2-2b --ckpt /path/to/my-finetune --name my_finetune
 
 Models (--model; see ocr_eval/models.py): typhoon-ocr2-2b, typhoon-ocr2-0.8b, infinity-parser2-flash,
-typhoon-ocr1.5-2b, chandra-ocr-2, dots.mocr, paddleocr-vl-1.6, ovisocr2, openthai2.0-ocr-markdown,
+typhoon-ocr1.5-2b, chandra-ocr-2, dots.mocr, paddleocr-vl-1.6, ovisocr2, openthai2.0-ocr-markdown, openthai2.1-ocr-markdown,
 nemotron-3.5-parse, deepseek-ocr-2. With only --ckpt, the model whose default weights are --ckpt is used.
 
 Benchmarks (--benchmarks, default all, in this order):
